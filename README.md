@@ -1,4 +1,4 @@
-# QassaB
+# QasaB/غصاب
 A Telegram bot that allows users to split PDF files by selecting specific page ranges. The bot can handle PDFs uploaded directly, downloaded from URLs, or selected from previously processed files.
 
 ## Features
@@ -18,7 +18,7 @@ A Telegram bot that allows users to split PDF files by selecting specific page r
 1. Clone the repository:
    ```
    git clone https://github.com/yourusername/pdf-splitter-bot.git
-   cd pdf-splitter-bot
+   cd qasab
    ```
 
 2. Install dependencies:
@@ -33,7 +33,7 @@ A Telegram bot that allows users to split PDF files by selecting specific page r
 
 4. Run the bot:
    ```
-   python pdf_splitter_bot.py
+   python app.py
    ```
 
 ### Docker Installation
@@ -45,7 +45,7 @@ A Telegram bot that allows users to split PDF files by selecting specific page r
 
 2. Run the container:
    ```
-   docker run -d --name pdf-splitter-bot \
+   docker run -d --name qasab \
      -e TELEGRAM_BOT_TOKEN="your_token_here" \
      -v $(pwd)/stored_pdfs:/app/stored_pdfs \
      pdf-splitter-bot
