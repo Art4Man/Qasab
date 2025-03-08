@@ -17,7 +17,7 @@ A Telegram bot that allows users to split PDF files by selecting specific page r
 ### Local Installation
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/pdf-splitter-bot.git
+   git clone https://github.com/yourusername/qasab.git
    cd qasab
    ```
 
@@ -40,7 +40,7 @@ A Telegram bot that allows users to split PDF files by selecting specific page r
 
 1. Build the Docker image:
    ```
-   docker build -t pdf-splitter-bot .
+   docker build -t qasab .
    ```
 
 2. Run the container:
@@ -48,7 +48,7 @@ A Telegram bot that allows users to split PDF files by selecting specific page r
    docker run -d --name qasab \
      -e TELEGRAM_BOT_TOKEN="your_token_here" \
      -v $(pwd)/stored_pdfs:/app/stored_pdfs \
-     pdf-splitter-bot
+     qasab
    ```
 
 Alternatively, use Docker Compose:
@@ -77,8 +77,8 @@ docker-compose up -d
 1. SSH into your server
 2. Clone the repository:
    ```
-   git clone https://github.com/yourusername/pdf-splitter-bot.git
-   cd pdf-splitter-bot
+   git clone https://github.com/yourusername/qasab.git
+   cd qasab
    ```
 3. Install Docker if not already installed:
    ```
@@ -88,26 +88,26 @@ docker-compose up -d
 4. Configure and start the bot:
    ```
    # Build the Docker image
-   docker build -t pdf-splitter-bot .
+   docker build -t qasab .
    
    # Run the container
-   docker run -d --name pdf-splitter-bot \
+   docker run -d --name qasab \
      -e TELEGRAM_BOT_TOKEN="your_token_here" \
      -v $(pwd)/stored_pdfs:/app/stored_pdfs \
      --restart unless-stopped \
-     pdf-splitter-bot
+     qasab
    ```
 
 ### Maintaining the Bot
 
 1. Monitoring logs:
    ```
-   docker logs -f pdf-splitter-bot
+   docker logs -f qasab
    ```
 
 2. Restarting the bot:
    ```
-   docker restart pdf-splitter-bot
+   docker restart qasab
    ```
 
 3. Updating the bot:
@@ -116,16 +116,16 @@ docker-compose up -d
    git pull
    
    # Stop and remove old container
-   docker stop pdf-splitter-bot
-   docker rm pdf-splitter-bot
+   docker stop qasab
+   docker rm qasab
    
    # Rebuild and run
-   docker build -t pdf-splitter-bot .
-   docker run -d --name pdf-splitter-bot \
+   docker build -t qasab .
+   docker run -d --name qasab \
      -e TELEGRAM_BOT_TOKEN="your_token_here" \
      -v $(pwd)/stored_pdfs:/app/stored_pdfs \
      --restart unless-stopped \
-     pdf-splitter-bot
+     qasab
    ```
 
 ## Notes on Large Files
@@ -137,7 +137,7 @@ docker-compose up -d
 
 ## Troubleshooting
 
-- **Bot not responding**: Check the logs using `docker logs pdf-splitter-bot`
+- **Bot not responding**: Check the logs using `docker logs qasab`
 - **File size errors**: Remember Telegram's 50MB limit for bot file transfers
 - **Timeout errors**: Try extracting fewer pages at once
 - **PDF processing errors**: Ensure the PDF is not corrupted or password-protected
