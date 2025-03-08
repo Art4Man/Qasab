@@ -1,4 +1,4 @@
-# QasaB/غصاب
+# QasaB/قصاب
 A Telegram bot that allows users to split PDF files by selecting specific page ranges. The bot can handle PDFs uploaded directly, downloaded from URLs, or selected from previously processed files.
 
 ## Features
