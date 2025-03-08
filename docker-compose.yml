@@ -1,0 +1,11 @@
+version: '3'
+
+services:
+  pdf-splitter-bot:
+    build: .
+    container_name: pdf-splitter-bot
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=your_actual_token_here
+    volumes:
+      - ./stored_pdfs:/app/stored_pdfs
