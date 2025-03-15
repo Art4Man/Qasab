@@ -4,6 +4,9 @@ import tempfile
 import requests
 import time
 import glob
+import uuid
+import threading
+from flask import Flask, send_file, request, abort
 from urllib.parse import urlparse
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, ContextTypes, filters, CallbackQueryHandler
@@ -26,7 +29,84 @@ MAX_DOWNLOAD_SIZE = 2 * 1024 * 1024 * 1024
 
 # Directory to store PDFs for later use
 PDF_STORAGE_DIR = "stored_pdfs"
+
+# Directory to store temporary files for web server
+WEB_SERVE_DIR = "web_serve"
 os.makedirs(PDF_STORAGE_DIR, exist_ok=True)
+os.makedirs(WEB_SERVE_DIR, exist_ok=True)
+
+# Server configuration - CHANGE THESE AS NEEDED
+SERVER_HOST = '0.0.0.0'  # Listen on all interfaces
+SERVER_PORT = 8000
+# Set this to your server's public IP or domain name
+PUBLIC_URL = os.environ.get('PUBLIC_URL', 'http://your-server-public-ip-or-domain:8000')
+
+# Dictionary to store file access tokens for security
+file_tokens = {}
+
+# Create Flask app for serving files
+flask_app = Flask(__name__)
+
+# File expiration time in seconds (6 hours)
+FILE_EXPIRATION_TIME = 21600
+
+os.makedirs(PDF_STORAGE_DIR, exist_ok=True)
+
+@flask_app.route('/download/<token>')
+def download_file(token):
+    """Serve a file for download based on token."""
+    if token not in file_tokens or file_tokens[token]['expire_time'] < time.time():
+        # Token is invalid or expired
+        return abort(404)
+    
+    file_path = file_tokens[token]['file_path']
+    original_filename = file_tokens[token]['filename']
+    
+    if not os.path.exists(file_path):
+        # File was deleted or doesn't exist
+        return abort(404)
+    
+    # Serve the file
+    return send_file(
+        file_path,
+        as_attachment=True,
+        download_name=original_filename,
+        mimetype='application/pdf'
+    )
+
+def generate_download_token(file_path, original_filename, client_ip=None):
+    """Generate a unique token for file download and store its data."""
+    token = str(uuid.uuid4())
+    
+    # Store token data
+    file_tokens[token] = {
+        'file_path': file_path,
+        'filename': original_filename,
+        'client_ip': client_ip,
+        'expire_time': time.time() + FILE_EXPIRATION_TIME
+    }
+    
+    # Schedule token removal after expiration
+    threading.Timer(FILE_EXPIRATION_TIME, lambda: file_tokens.pop(token, None)).start()
+    
+    return token
+
+def cleanup_expired_files():
+    """Remove expired files from the web serve directory."""
+    current_time = time.time()
+    for filename in os.listdir(WEB_SERVE_DIR):
+        file_path = os.path.join(WEB_SERVE_DIR, filename)
+        
+        # Check if the file is older than expiration time
+        if os.path.isfile(file_path) and os.path.getmtime(file_path) + FILE_EXPIRATION_TIME < current_time:
+            try:
+                os.remove(file_path)
+                logger.info(f"Removed expired file: {filename}")
+            except Exception as e:
+                logger.error(f"Error removing expired file {filename}: {e}")
+    
+    # Schedule the next cleanup
+    threading.Timer(3600, cleanup_expired_files).start()  # Run every hour
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Send welcome message when the command /start is issued."""
@@ -420,17 +500,23 @@ def get_filename_from_url(url: str, content_disposition: str = None) -> str:
 async def process_page_range(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Process the specified page range and create a new PDF."""
     user = update.message.from_user
-    page_range_text = update.message.text
+    page_range_text = update.message.text.strip()
     
     # Notify user that processing has started
     status_message = await update.message.reply_text("Validating your request...")
     
     # Parse page range
     try:
-        start_page, end_page = map(int, page_range_text.split('-'))
+        # Check if input contains a hyphen (range) or just a single page
+        if '-' in page_range_text:
+            start_page, end_page = map(int, page_range_text.split('-'))
+        else:
+            # Handle single page case
+            start_page = end_page = int(page_range_text)
     except ValueError:
         await status_message.edit_text(
-            "Invalid format! Please use the format: start-end (e.g., 1-5)"
+            "Invalid format! Please enter either a single page number (e.g., 157) "
+            "or a range in the format: start-end (e.g., 1-5)"
         )
         return GET_PAGE_RANGE
     
@@ -439,12 +525,16 @@ async def process_page_range(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if start_page < 1 or end_page > num_pages or start_page > end_page:
         await status_message.edit_text(
             f"Invalid page range! The document has {num_pages} pages. "
-            f"Please specify a valid range between 1 and {num_pages}."
+            f"Please specify a valid page or range between 1 and {num_pages}."
         )
         return GET_PAGE_RANGE
     
-    # Check if the range is too large (more than 100 pages)
-    if end_page - start_page + 1 > 100:
+    # Check if this is a confirmation for a large range
+    if page_range_text.lower() == 'yes' and 'pending_range' in context.user_data:
+        start_page, end_page = context.user_data["pending_range"]
+        del context.user_data["pending_range"]  # Clear the pending range
+    elif end_page - start_page + 1 > 100:
+        # Check if the range is too large (more than 100 pages)
         await status_message.edit_text(
             f"⚠️ You're trying to extract {end_page - start_page + 1} pages, which is quite large.\n\n"
             f"Processing many pages can take a long time and might cause timeouts.\n"
@@ -454,11 +544,6 @@ async def process_page_range(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Store the current range for potential confirmation
         context.user_data["pending_range"] = (start_page, end_page)
         return GET_PAGE_RANGE
-    
-    # Check if this is a confirmation for a large range
-    if page_range_text.lower() == 'yes' and 'pending_range' in context.user_data:
-        start_page, end_page = context.user_data["pending_range"]
-        del context.user_data["pending_range"]  # Clear the pending range
     
     # Create a new PDF with the specified pages
     await status_message.edit_text("Creating your new PDF... This may take a moment.")
@@ -505,33 +590,61 @@ async def process_page_range(update: Update, context: ContextTypes.DEFAULT_TYPE)
             with open(output_pdf_path, 'wb') as output_file:
                 pdf_writer.write(output_file)
         
-        # Check if the output file is within Telegram size limits
-        output_size = os.path.getsize(output_pdf_path)
-        if output_size > MAX_FILE_SIZE:
-            await status_message.edit_text(
-                f"⚠️ The resulting PDF is too large to send ({output_size // (1024 * 1024)}MB, limit is 50MB). "
-                "Please try extracting fewer pages."
-            )
-            os.remove(output_pdf_path)
-            return GET_PAGE_RANGE
-        
         # Get original filename for better output filename
         original_filename = os.path.basename(input_pdf_path)
         output_filename = f"{os.path.splitext(original_filename)[0]}_pages_{start_page}_to_{end_page}.pdf"
         
-        # Send the new PDF back to the user with extended timeout
-        await status_message.edit_text("Sending your new PDF...")
+        # Check if the output file is within Telegram size limits
+        output_size = os.path.getsize(output_pdf_path)
         
-        # For large files, use a more explicit approach with longer timeout
-        with open(output_pdf_path, 'rb') as doc_file:
-            await update.message.reply_document(
-                document=doc_file,
-                filename=output_filename,
-                caption=f"Here's your new PDF with pages {start_page} to {end_page}.",
-                read_timeout=60,
-                write_timeout=60,
-                connect_timeout=60,
-                pool_timeout=60
+        if output_size <= MAX_FILE_SIZE:
+            # If file is small enough, send it directly
+            await status_message.edit_text("Sending your new PDF...")
+            
+            # For large files, use a more explicit approach with longer timeout
+            with open(output_pdf_path, 'rb') as doc_file:
+                await update.message.reply_document(
+                    document=doc_file,
+                    filename=output_filename,
+                    caption=f"Here's your new PDF with pages {start_page} to {end_page}.",
+                    read_timeout=60,
+                    write_timeout=60,
+                    connect_timeout=60,
+                    pool_timeout=60
+                )
+        else:
+            # If file is too large for Telegram, serve it via our web server
+            await status_message.edit_text(
+                f"The resulting PDF is {output_size // (1024 * 1024)}MB, which exceeds Telegram's 50MB limit. "
+                "Preparing a download link for you..."
+            )
+            
+            # Create a copy in our web serve directory with a unique name
+            unique_filename = f"{uuid.uuid4()}_{output_filename}"
+            web_serve_path = os.path.join(WEB_SERVE_DIR, unique_filename)
+            
+            # Copy the file to the web serve directory
+            with open(output_pdf_path, 'rb') as src_file, open(web_serve_path, 'wb') as dst_file:
+                dst_file.write(src_file.read())
+            
+            # Generate a token for this file
+            client_ip = None  # In a real implementation, you might want to capture the client's IP
+            token = generate_download_token(web_serve_path, output_filename, client_ip)
+            
+            # Create the download URL
+            download_url = f"{PUBLIC_URL}/download/{token}"
+            
+            # Send the download link to the user
+            keyboard = [
+                [InlineKeyboardButton("Download PDF", url=download_url)]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                f"Your PDF with pages {start_page} to {end_page} is ready!\n\n"
+                f"Size: {output_size // (1024 * 1024)}MB\n\n"
+                f"Click the button below to download it. This link will expire in 24 hours.",
+                reply_markup=reply_markup
             )
         
         # Clean up temporary files (but keep the original in storage)
@@ -653,7 +766,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.error(f"Error in error handler: {e}")
 
 def main() -> None:
-    """Run the bot."""
+    """Run the bot and web server."""
     # Get token from environment variable or replace with your token
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
     
@@ -699,6 +812,22 @@ def main() -> None:
     
     # Register error handler
     application.add_error_handler(error_handler)
+    
+    # Start cleanup thread for expired files
+    cleanup_expired_files()
+    
+    # Start the web server in a separate thread
+    threading.Thread(
+        target=lambda: flask_app.run(
+            host=SERVER_HOST,
+            port=SERVER_PORT,
+            debug=False,
+            use_reloader=False
+        ),
+        daemon=True
+    ).start()
+    
+    logger.info(f"Web server started at {PUBLIC_URL}")
     
     # Run the bot until the user presses Ctrl-C
     application.run_polling()
