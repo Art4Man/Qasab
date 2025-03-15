@@ -142,10 +142,6 @@ docker-compose up -d
 - **Timeout errors**: Try extracting fewer pages at once
 - **PDF processing errors**: Ensure the PDF is not corrupted or password-protected
 
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
 ## Acknowledgments
 
 - Built with Python and python-telegram-bot library
