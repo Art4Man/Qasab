@@ -26,6 +26,7 @@ ENV/
 
 # Bot specific
 stored_pdfs/
+web_serve/
 .env
 
 # IDE
