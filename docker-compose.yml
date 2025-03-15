@@ -7,5 +7,9 @@ services:
     restart: unless-stopped
     environment:
       - TELEGRAM_BOT_TOKEN=your_actual_token_here
+      - PUBLIC_URL=http://your-server-ip-or-domain:8000
     volumes:
       - ./stored_pdfs:/app/stored_pdfs
+      - ./web_serve:/app/web_serve
+    ports:
+      - "8000:8000"
