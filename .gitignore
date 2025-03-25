@@ -19,6 +19,9 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
+chap-chap.ipynb
+chap-chap.py
+*.pdf
 
 # Virtual Environment
 venv/

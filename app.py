@@ -6,6 +6,7 @@ import time
 import glob
 import uuid
 import threading
+import socket
 from flask import Flask, send_file, request, abort
 from urllib.parse import urlparse
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
@@ -35,11 +36,42 @@ WEB_SERVE_DIR = "web_serve"
 os.makedirs(PDF_STORAGE_DIR, exist_ok=True)
 os.makedirs(WEB_SERVE_DIR, exist_ok=True)
 
-# Server configuration - CHANGE THESE AS NEEDED
+# Server configuration
 SERVER_HOST = '0.0.0.0'  # Listen on all interfaces
 SERVER_PORT = 8000
+
+# Auto-detect public IP if not provided
+def get_public_ip():
+    """Get the public IP address of the server."""
+    try:
+        # Try to get IP from AWS metadata service first (for Lightsail instances)
+        response = requests.get('http://169.254.169.254/latest/meta-data/public-ipv4', timeout=2)
+        if response.status_code == 200:
+            return response.text
+        
+        # If AWS metadata doesn't work, try another service
+        response = requests.get('https://api.ipify.org', timeout=5)
+        return response.text
+    except Exception as e:
+        logger.warning(f"Could not auto-detect public IP: {e}")
+        # Fallback to environment variable or default
+        return None
+
 # Set this to your server's public IP or domain name
-PUBLIC_URL = os.environ.get('PUBLIC_URL', 'http://your-server-public-ip-or-domain:8000')
+public_url_env = os.environ.get('PUBLIC_URL')
+if not public_url_env or public_url_env.startswith(('http://localhost', 'http://127.0.0.1')):
+    # If PUBLIC_URL is not set or is localhost, try to auto-detect
+    public_ip = get_public_ip()
+    if public_ip:
+        PUBLIC_URL = f'http://{public_ip}:{SERVER_PORT}'
+        logger.info(f"Auto-detected PUBLIC_URL: {PUBLIC_URL}")
+    else:
+        # Fallback
+        PUBLIC_URL = public_url_env or f'http://localhost:{SERVER_PORT}'
+        logger.warning(f"Could not auto-detect IP. Using PUBLIC_URL: {PUBLIC_URL}")
+else:
+    PUBLIC_URL = public_url_env
+    logger.info(f"Using configured PUBLIC_URL: {PUBLIC_URL}")
 
 # Dictionary to store file access tokens for security
 file_tokens = {}
@@ -47,10 +79,8 @@ file_tokens = {}
 # Create Flask app for serving files
 flask_app = Flask(__name__)
 
-# File expiration time in seconds (6 hours)
-FILE_EXPIRATION_TIME = 21600
-
-os.makedirs(PDF_STORAGE_DIR, exist_ok=True)
+# File expiration time in seconds (24 hours)
+FILE_EXPIRATION_TIME = 86400
 
 @flask_app.route('/download/<token>')
 def download_file(token):
@@ -505,45 +535,34 @@ async def process_page_range(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Notify user that processing has started
     status_message = await update.message.reply_text("Validating your request...")
     
-    # Parse page range
-    try:
-        # Check if input contains a hyphen (range) or just a single page
-        if '-' in page_range_text:
-            start_page, end_page = map(int, page_range_text.split('-'))
-        else:
-            # Handle single page case
-            start_page = end_page = int(page_range_text)
-    except ValueError:
-        await status_message.edit_text(
-            "Invalid format! Please enter either a single page number (e.g., 157) "
-            "or a range in the format: start-end (e.g., 1-5)"
-        )
-        return GET_PAGE_RANGE
-    
-    # Validate page range
-    num_pages = context.user_data.get("num_pages", 0)
-    if start_page < 1 or end_page > num_pages or start_page > end_page:
-        await status_message.edit_text(
-            f"Invalid page range! The document has {num_pages} pages. "
-            f"Please specify a valid page or range between 1 and {num_pages}."
-        )
-        return GET_PAGE_RANGE
-    
     # Check if this is a confirmation for a large range
     if page_range_text.lower() == 'yes' and 'pending_range' in context.user_data:
         start_page, end_page = context.user_data["pending_range"]
         del context.user_data["pending_range"]  # Clear the pending range
-    elif end_page - start_page + 1 > 100:
-        # Check if the range is too large (more than 100 pages)
-        await status_message.edit_text(
-            f"⚠️ You're trying to extract {end_page - start_page + 1} pages, which is quite large.\n\n"
-            f"Processing many pages can take a long time and might cause timeouts.\n"
-            f"Consider extracting fewer pages (maximum of 100 recommended).\n\n"
-            f"Do you want to continue anyway? Reply with 'yes' to proceed or provide a new range."
-        )
-        # Store the current range for potential confirmation
-        context.user_data["pending_range"] = (start_page, end_page)
-        return GET_PAGE_RANGE
+    else:
+        # Parse page range
+        try:
+            # Check if input contains a hyphen (range) or just a single page
+            if '-' in page_range_text:
+                start_page, end_page = map(int, page_range_text.split('-'))
+            else:
+                # Handle single page case
+                start_page = end_page = int(page_range_text)
+        except ValueError:
+            await status_message.edit_text(
+                "Invalid format! Please enter either a single page number (e.g., 157) "
+                "or a range in the format: start-end (e.g., 1-5)"
+            )
+            return GET_PAGE_RANGE
+        
+        # Validate page range
+        num_pages = context.user_data.get("num_pages", 0)
+        if start_page < 1 or end_page > num_pages or start_page > end_page:
+            await status_message.edit_text(
+                f"Invalid page range! The document has {num_pages} pages. "
+                f"Please specify a valid page or range between 1 and {num_pages}."
+            )
+            return GET_PAGE_RANGE
     
     # Create a new PDF with the specified pages
     await status_message.edit_text("Creating your new PDF... This may take a moment.")
@@ -633,6 +652,18 @@ async def process_page_range(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
             # Create the download URL
             download_url = f"{PUBLIC_URL}/download/{token}"
+            
+            # Log the URL being created
+            logger.info(f"Generated download URL: {download_url}")
+            
+            # Validate URL before sending (Telegram doesn't accept localhost)
+            if 'localhost' in download_url or '127.0.0.1' in download_url:
+                logger.error(f"Invalid URL detected: {download_url}")
+                await status_message.edit_text(
+                    "Error: The server is not properly configured with a public URL.\n"
+                    "Please contact the administrator to set a valid PUBLIC_URL environment variable."
+                )
+                return UPLOAD_PDF
             
             # Send the download link to the user
             keyboard = [
@@ -769,6 +800,9 @@ def main() -> None:
     """Run the bot and web server."""
     # Get token from environment variable or replace with your token
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+    
+    # Log important configuration information
+    logger.info(f"Starting PDF Splitter Bot with PUBLIC_URL={PUBLIC_URL}")
     
     # Create the Application with increased timeout
     application = Application.builder().token(token) \
