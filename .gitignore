@@ -26,7 +26,7 @@ chap-chap.py
 # Virtual Environment
 venv/
 ENV/
-.venv-qasab
+.venv
 
 # Bot specific
 stored_pdfs/
