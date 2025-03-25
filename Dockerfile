@@ -23,8 +23,4 @@ ENV TELEGRAM_BOT_TOKEN="YOUR_BOT_TOKEN_HERE"
 
 EXPOSE 8000
 
-# Health check to ensure the service is running properly
-HEALTHCHECK --interval=60s --timeout=10s --retries=3 \
-  CMD curl -f http://localhost:8000/ || exit 1
-
 CMD ["python", "app.py"]
