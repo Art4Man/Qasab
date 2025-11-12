@@ -45,6 +45,21 @@ A Telegram bot that allows users to split PDF files by selecting specific page r
 
 ### Docker Installation
 
+#### Using Pre-built Image from DockerHub
+
+1. Pull and run the container directly:
+   ```
+   docker run -d --name qasab \
+     -e TELEGRAM_BOT_TOKEN="your_token_here" \
+     -e PUBLIC_URL="http://your-domain-or-ip:8000" \
+     -v $(pwd)/stored_pdfs:/app/stored_pdfs \
+     -v $(pwd)/web_serve:/app/web_serve \
+     -p 8000:8000 \
+     your-dockerhub-username/qasab:latest
+   ```
+
+#### Building from Source
+
 1. Build the Docker image:
    ```
    docker build -t qasab .
