@@ -50,7 +50,7 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          password: ${{ secrets.VPS_PASSWORD }}
           script: |
             # Stop and remove existing container
             docker stop qasab || true
@@ -68,6 +68,3 @@ jobs:
               -p 8000:8000 \
               --restart unless-stopped \
               ${{ secrets.DOCKER_USERNAME }}/qasab:latest
-
-            # Clean up old images
-            docker image prune -f

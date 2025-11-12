@@ -55,7 +55,7 @@ A Telegram bot that allows users to split PDF files by selecting specific page r
      -v $(pwd)/stored_pdfs:/app/stored_pdfs \
      -v $(pwd)/web_serve:/app/web_serve \
      -p 8000:8000 \
-     your-dockerhub-username/qasab:latest
+     art4man/qasab:latest
    ```
 
 #### Building from Source
